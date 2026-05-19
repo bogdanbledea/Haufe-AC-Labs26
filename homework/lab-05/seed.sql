@@ -3,9 +3,102 @@
 -- Run this AFTER schema.sql to populate the database with sample data.
 --
 -- NOTE: These profiles use hardcoded UUIDs that do NOT correspond to real
--- Supabase Auth users. This is fine for exploring queries in the SQL Editor.
+-- Supabase Auth users. We insert stub rows into auth.users so the FK
+-- constraint on profiles is satisfied.
 -- For the frontend auth flow, students will register real users.
 -- =============================================================================
+
+-- ---------------------------------------------------------------------------
+-- AUTH USERS (stub rows so profiles FK constraint is satisfied)
+-- ---------------------------------------------------------------------------
+INSERT INTO
+    auth.users (
+        instance_id,
+        id,
+        aud,
+        role,
+        email,
+        encrypted_password,
+        email_confirmed_at,
+        created_at,
+        updated_at,
+        confirmation_token,
+        recovery_token,
+        email_change_token_new,
+        email_change
+    )
+VALUES (
+        '00000000-0000-0000-0000-000000000000',
+        '11111111-1111-1111-1111-111111111111',
+        'authenticated',
+        'authenticated',
+        'alice@example.com',
+        crypt (
+            'password123',
+            gen_salt ('bf')
+        ),
+        now(),
+        now(),
+        now(),
+        '',
+        '',
+        '',
+        ''
+    ),
+    (
+        '00000000-0000-0000-0000-000000000000',
+        '22222222-2222-2222-2222-222222222222',
+        'authenticated',
+        'authenticated',
+        'bob@example.com',
+        crypt (
+            'password123',
+            gen_salt ('bf')
+        ),
+        now(),
+        now(),
+        now(),
+        '',
+        '',
+        '',
+        ''
+    ),
+    (
+        '00000000-0000-0000-0000-000000000000',
+        '33333333-3333-3333-3333-333333333333',
+        'authenticated',
+        'authenticated',
+        'carol@example.com',
+        crypt (
+            'password123',
+            gen_salt ('bf')
+        ),
+        now(),
+        now(),
+        now(),
+        '',
+        '',
+        '',
+        ''
+    ),
+    (
+        '00000000-0000-0000-0000-000000000000',
+        '44444444-4444-4444-4444-444444444444',
+        'authenticated',
+        'authenticated',
+        'dave@example.com',
+        crypt (
+            'password123',
+            gen_salt ('bf')
+        ),
+        now(),
+        now(),
+        now(),
+        '',
+        '',
+        '',
+        ''
+    );
 
 -- ---------------------------------------------------------------------------
 -- PROFILES
