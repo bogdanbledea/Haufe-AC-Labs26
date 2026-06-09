@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Markdown content inside answer bodies and question descriptions */
+.prose h1, .prose h2, .prose h3 { @apply font-semibold mt-4 mb-2; }
+.prose h1 { @apply text-xl; }
+.prose h2 { @apply text-lg; }
+.prose h3 { @apply text-base; }
+.prose p { @apply mb-3 leading-relaxed; }
+.prose ul { @apply list-disc list-inside mb-3 space-y-1; }
+.prose ol { @apply list-decimal list-inside mb-3 space-y-1; }
+.prose code { @apply bg-zinc-100 text-zinc-800 px-1 py-0.5 rounded text-sm font-mono; }
+.prose pre { @apply bg-zinc-900 text-zinc-100 p-4 rounded-lg overflow-x-auto mb-3; }
+.prose pre code { @apply bg-transparent text-zinc-100 p-0; }
+.prose a { @apply text-blue-600 hover:underline; }
+.prose blockquote { @apply border-l-4 border-zinc-300 pl-4 text-zinc-600 italic mb-3; }
+
+/* Dark mode prose overrides */
+.dark .prose code { @apply bg-zinc-700 text-zinc-200; }
+.dark .prose pre code { @apply bg-transparent text-zinc-100; }
+.dark .prose a { @apply text-blue-400; }
+.dark .prose blockquote { @apply border-zinc-600 text-zinc-400; }

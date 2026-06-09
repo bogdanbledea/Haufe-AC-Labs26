@@ -1,0 +1,16 @@
+{
+  "name": "smo-ai",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch --env-file=.env index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "morgan": "^1.10.0",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "openai": "^4.77.0"
+  }
+}
