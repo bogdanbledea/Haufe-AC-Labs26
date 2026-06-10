@@ -1,8 +1,30 @@
 import express from 'express';
 import * as smoAi from '../services/smoAi.js';
 import supabase from '../supabase.js';
+import logger from '../logger.js';
 
 const router = express.Router();
+
+// Same shape GET /questions returns, so the frontend can render results identically.
+const QUESTION_SELECT = `
+  id, title, is_solved, vote_count, created_at,
+  author:profiles!author_id(id, username),
+  question_tags(tag:tags(name)),
+  answers(count)
+`;
+
+// Build a PostgREST `.or()` filter that matches any term in title OR description.
+// Strip characters that have meaning in the filter grammar (commas, parens, wildcards)
+// so a stray keyword can't break the query.
+function buildOrFilter(terms) {
+  const clauses = [];
+  for (const term of terms) {
+    const safe = String(term).replace(/[,()%*]/g, ' ').trim();
+    if (!safe) continue;
+    clauses.push(`title.ilike.%${safe}%`, `description.ilike.%${safe}%`);
+  }
+  return clauses.join(',');
+}
 
 // POST /ai/tags — proxy to smo-ai
 router.post('/tags', async (req, res) => {
@@ -14,10 +36,44 @@ router.post('/tags', async (req, res) => {
   return res.json(result ?? { tags: [] });
 });
 
-// GET /ai/health — proxy to smo-ai
-router.get('/health', async (_req, res) => {
-  const result = await smoAi.health();
-  return res.json(result ?? { ok: false });
+// POST /ai/smart-search — expand the query via smo-ai, then search Supabase.
+// Falls back to a plain search on the raw query if smo-ai is down or rate limited.
+router.post('/smart-search', async (req, res) => {
+  const { query } = req.body;
+  if (!query?.trim()) return res.status(400).json({ error: 'query is required' });
+
+  const result = await smoAi.smartSearch(query.trim());
+
+  // Use AI keywords when available; otherwise degrade to the original query.
+  let terms = [query.trim()];
+  if (result?.keywords?.length) {
+    const keywords = result.keywords.filter((k) => typeof k === 'string' && k.trim());
+    if (keywords.length) terms = keywords;
+  } else {
+    logger.warn('smart-search falling back to raw query', { query: query.trim() });
+  }
+
+  const orFilter = buildOrFilter(terms);
+  if (!orFilter) return res.json({ questions: [] });
+
+  const { data, error } = await supabase
+    .from('questions')
+    .select(QUESTION_SELECT)
+    .or(orFilter)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    logger.error('smart-search query failed', { error: error.message });
+    return res.status(500).json({ error: error.message });
+  }
+
+  const questions = data.map((q) => ({
+    ...q,
+    answer_count: q.answers?.[0]?.count ?? 0,
+    answers: undefined,
+  }));
+
+  return res.json({ questions });
 });
 
 // GET /ai/health — proxy to smo-ai
