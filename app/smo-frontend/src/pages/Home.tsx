@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import Navbar from '../components/Navbar';
 import QuestionCard from '../components/QuestionCard';
-import { getQuestions } from '../lib/api';
+import SearchBar from '../components/SearchBar';
+import { getQuestions, smartSearch } from '../lib/api';
 import type { QuestionSummary } from '../types';
 
 const Home = () => {
@@ -12,6 +13,9 @@ const Home = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<QuestionSummary[] | null>(null);
+  const [searching, setSearching] = useState(false);
   const [showTagFilter, setShowTagFilter] = useState(false);
   const tagFilterRef = useRef<HTMLDivElement>(null);
 
@@ -26,7 +30,6 @@ const Home = () => {
       .finally(() => setLoading(false));
   }, [activeTag]);
 
-  // Close tag panel when clicking outside
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (tagFilterRef.current && !tagFilterRef.current.contains(e.target as Node)) {
@@ -46,6 +49,25 @@ const Home = () => {
     setShowTagFilter(false);
   };
 
+  const handleSearch = async (query: string) => {
+    setSearchQuery(query);
+    if (!query) {
+      setSearchResults(null);
+      return;
+    }
+    setSearching(true);
+    try {
+      const res = await smartSearch(query);
+      setSearchResults(res.questions);
+    } catch {
+      setSearchResults([]);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const displayedQuestions = searchResults ?? questions;
+
   return (
     <div className="min-h-screen bg-white dark:bg-zinc-900">
       <Navbar />
@@ -63,7 +85,9 @@ const Home = () => {
           )}
         </div>
 
-        {allTags.length > 0 && (
+        <SearchBar onSearch={handleSearch} loading={searching} />
+
+        {allTags.length > 0 && !searchQuery && (
           <div ref={tagFilterRef} className="relative mb-6">
             <div className="flex items-center gap-2">
               <button
@@ -141,7 +165,7 @@ const Home = () => {
           </div>
         )}
 
-        {loading && (
+        {(loading || searching) && (
           <div className="space-y-3">
             {[1, 2, 3].map((i) => (
               <div
@@ -155,16 +179,18 @@ const Home = () => {
           </div>
         )}
 
-        {!loading && error && (
+        {!loading && !searching && error && (
           <p className="text-sm text-red-600 dark:text-red-400">
             Failed to load questions: {error}
           </p>
         )}
 
-        {!loading && !error && questions.length === 0 && (
+        {!loading && !searching && !error && displayedQuestions.length === 0 && (
           <div className="text-center py-16 text-zinc-400 dark:text-zinc-500">
-            <p className="text-lg mb-2">No questions yet.</p>
-            {user ? (
+            <p className="text-lg mb-2">
+              {searchQuery ? `No results for "${searchQuery}".` : 'No questions yet.'}
+            </p>
+            {!searchQuery && user && (
               <p className="text-sm">
                 Be the first —{' '}
                 <Link to="/questions/new" className="text-blue-600 hover:underline dark:text-blue-400">
@@ -172,7 +198,8 @@ const Home = () => {
                 </Link>
                 .
               </p>
-            ) : (
+            )}
+            {!searchQuery && !user && (
               <p className="text-sm">
                 <Link to="/signin" className="text-blue-600 hover:underline dark:text-blue-400">
                   Sign in
@@ -183,9 +210,9 @@ const Home = () => {
           </div>
         )}
 
-        {!loading && !error && questions.length > 0 && (
+        {!loading && !searching && !error && displayedQuestions.length > 0 && (
           <div className="space-y-3">
-            {questions.map((q) => (
+            {displayedQuestions.map((q) => (
               <QuestionCard key={q.id} question={q} onTagClick={handleTagClick} />
             ))}
           </div>

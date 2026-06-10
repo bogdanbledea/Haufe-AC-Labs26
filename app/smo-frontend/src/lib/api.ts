@@ -133,3 +133,6 @@ export const summarizeQuestion = (questionId: string) =>
   post<{ summary: string }>('/ai/summarize', { questionId });
 
 export const aiHealth = () => get<AiHealthResponse>('/ai/health');
+
+export const smartSearch = (query: string) =>
+  post<{ questions: QuestionSummary[] }>('/ai/smart-search', { query });
