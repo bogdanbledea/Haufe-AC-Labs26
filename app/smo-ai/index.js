@@ -83,6 +83,16 @@ Rules:
 - "off-topic": the answer does not address THIS question — it's about something else entirely
 - Output ONLY valid JSON. Format: {"badge": "helpful"}`;
 
+const SUMMARY_SYSTEM_PROMPT = `You are a summarization assistant for Stack my Overflow, a Q&A platform for software developers.
+Your job is to create a concise, helpful summary of a question and optionally its top answer.
+
+Rules:
+- Summary should be 1-2 sentences
+- Capture the core problem and context
+- If a top answer is provided, briefly mention the solution approach
+- Use clear, developer-friendly language
+- Output ONLY valid JSON. Format: {"summary": "brief summary text"}`;
+
 // --- Helpers ---
 
 function sanitizeInput(text, maxLength = 300) {
@@ -179,7 +189,7 @@ app.post('/evaluate-answer', async (req, res) => {
     }
 
     return res.json({ badge: rawBadge });
-  } catch (err) {
+    } catch (err) {
     if (isGroq429(err)) {
       const retryAfter = parseInt(err?.headers?.['retry-after'] ?? '300', 10);
       tripCircuitBreaker(retryAfter);
@@ -189,6 +199,62 @@ app.post('/evaluate-answer', async (req, res) => {
     logger.error('/evaluate-answer failed', { error: err.message });
     // Întoarcem 503 agreat în cerință fără să lăsăm procesul Node să moară
     return res.status(503).json({ error: 'Evaluation service unavailable' });
+  }
+});
+app.post('/summarize', async (req, res) => {
+  if (isRateLimited()) return rateLimitedResponse(res);
+
+  const { title, description, answers } = req.body;
+  if (!title || typeof title !== 'string' || title.trim().length === 0) {
+    return res.status(400).json({ error: 'title is required' });
+  }
+  if (!description || typeof description !== 'string' || description.trim().length === 0) {
+    return res.status(400).json({ error: 'description is required' });
+  }
+
+  // Validate answers if provided
+  if (answers && (!Array.isArray(answers) || answers.length > 3)) {
+    return res.status(400).json({ error: 'answers must be an array with max 3 items' });
+  }
+
+  try {
+    let userContent = `Question title: "${sanitizeInput(title)}"\n\nDescription: "${sanitizeInput(description)}"`;
+    
+    if (answers && Array.isArray(answers) && answers.length > 0) {
+      const validAnswers = answers
+        .filter((a) => typeof a === 'string' && a.trim().length > 0)
+        .slice(0, 3);
+      
+      if (validAnswers.length > 0) {
+        userContent += '\n\nAnswers:\n';
+        validAnswers.forEach((answer, idx) => {
+          userContent += `${idx + 1}. "${sanitizeInput(answer)}"\n`;
+        });
+      }
+    }
+
+    const completion = await llm.chat.completions.create({
+      model: MODEL,
+      messages: [
+        sysMsg(SUMMARY_SYSTEM_PROMPT),
+        { role: 'user', content: userContent },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.3,
+      max_tokens: 150,
+    });
+
+    const parsed = JSON.parse(completion.choices[0].message.content);
+    const summary = parsed.summary ?? '';
+    return res.json({ summary });
+  } catch (err) {
+    if (isGroq429(err)) {
+      const retryAfter = parseInt(err?.headers?.['retry-after'] ?? '300', 10);
+      tripCircuitBreaker(retryAfter);
+      return rateLimitedResponse(res);
+    }
+    logger.error('/summarize failed', { error: err.message });
+    return res.status(503).json({ error: 'Summary service unavailable' });
   }
 });
 
