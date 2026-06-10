@@ -67,6 +67,10 @@ export interface AiHealthResponse {
   model: string;
 }
 
+export interface AiSummaryResponse {
+  summary: string;
+}
+
 export interface AuthContextValue {
   user: User | null;
   token: string | null;
