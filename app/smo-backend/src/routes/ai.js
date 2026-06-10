@@ -2,6 +2,7 @@ import express from 'express';
 import * as smoAi from '../services/smoAi.js';
 import supabase from '../supabase.js';
 import logger from '../logger.js';
+import { buildOrFilter, selectSearchTerms, mapQuestionSummaries } from '../lib/search.js';
 
 const router = express.Router();
 
@@ -12,19 +13,6 @@ const QUESTION_SELECT = `
   question_tags(tag:tags(name)),
   answers(count)
 `;
-
-// Build a PostgREST `.or()` filter that matches any term in title OR description.
-// Strip characters that have meaning in the filter grammar (commas, parens, wildcards)
-// so a stray keyword can't break the query.
-function buildOrFilter(terms) {
-  const clauses = [];
-  for (const term of terms) {
-    const safe = String(term).replace(/[,()%*]/g, ' ').trim();
-    if (!safe) continue;
-    clauses.push(`title.ilike.%${safe}%`, `description.ilike.%${safe}%`);
-  }
-  return clauses.join(',');
-}
 
 // POST /ai/tags — proxy to smo-ai
 router.post('/tags', async (req, res) => {
@@ -44,12 +32,8 @@ router.post('/smart-search', async (req, res) => {
 
   const result = await smoAi.smartSearch(query.trim());
 
-  // Use AI keywords when available; otherwise degrade to the original query.
-  let terms = [query.trim()];
-  if (result?.keywords?.length) {
-    const keywords = result.keywords.filter((k) => typeof k === 'string' && k.trim());
-    if (keywords.length) terms = keywords;
-  } else {
+  const { terms, usedFallback } = selectSearchTerms(query, result);
+  if (usedFallback) {
     logger.warn('smart-search falling back to raw query', { query: query.trim() });
   }
 
@@ -67,13 +51,7 @@ router.post('/smart-search', async (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 
-  const questions = data.map((q) => ({
-    ...q,
-    answer_count: q.answers?.[0]?.count ?? 0,
-    answers: undefined,
-  }));
-
-  return res.json({ questions });
+  return res.json({ questions: mapQuestionSummaries(data) });
 });
 
 // GET /ai/health — proxy to smo-ai
