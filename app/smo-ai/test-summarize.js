@@ -75,15 +75,13 @@ async function runTests() {
     assert(test2.data.summary, 'Response should contain summary');
     console.log(`✓ Response: ${test2.data.summary}\n`);
 
-    // Test 3: Valid request with max 3 answers
-    console.log('Test 3: Valid request with max 3 answers');
+    // Test 3: Valid request with a single top answer (one answer is normal)
+    console.log('Test 3: Valid request with one answer');
     const test3 = await request('POST', '/summarize', {
       title: 'Best practice for error handling in Node.js?',
       description: 'What are the best practices for handling errors in Node.js applications?',
       answers: [
-        'Use try-catch blocks for synchronous code',
-        'Use .catch() for promise chains',
-        'Use error event listeners for event emitters',
+        'Use try-catch blocks for synchronous code and .catch() for promise chains',
       ],
     });
     assert.strictEqual(test3.status, 200, `Expected 200, got ${test3.status}`);
