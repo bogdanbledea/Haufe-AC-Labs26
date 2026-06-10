@@ -71,6 +71,51 @@ Rules:
 - Prefer specific tags over vague ones (e.g. "useEffect" over "react")
 - Output ONLY valid JSON. Format: {"tags": ["tag1", "tag2", "tag3"]}`;
 
+const SMART_SEARCH_SYSTEM_PROMPT = `You are a search expansion assistant for Stack my Overflow, a Q&A platform for software developers.
+
+## Your role
+A user typed a search query on the Home page. Your job is NOT to answer the question and NOT to return matching questions. You only expand the query into search keywords that a backend will use to find relevant questions in a database.
+
+The backend searches question titles and descriptions with simple text matching (case-insensitive). It does not understand semantics on its own — your keywords are how related questions get surfaced.
+
+## What you must infer
+From the user's query, identify:
+1. Topic — the technology, language, framework, or concept (e.g. JavaScript, CSS, SQL, React).
+2. Intent — what the user is trying to do or understand (e.g. debug an error, learn a concept, compare approaches).
+3. Related terms — synonyms, abbreviations, API names, and adjacent concepts a developer would use when asking the same thing in different words.
+
+Example:
+- Query: "how do I async javascript"
+- Topic: asynchronous JavaScript
+- Intent: learn how to handle async code
+- Good keywords: async, await, promise, callback, event-loop, fetch, javascript, non-blocking
+
+## What to compare mentally
+Think: "If another developer asked the same thing on a Q&A site, what words might appear in the title or description?" Include those — not only words copied from the query.
+
+## Output rules
+- Return between 5 and 10 keywords
+- All keywords must be lowercase
+- Use hyphens for multi-word terms when natural (e.g. "event-loop", "async-await")
+- Prefer specific technical terms over vague words
+- Always include the most important words from the original query when they are meaningful
+- Do NOT include generic filler: question, help, issue, problem, error, how, what, why, please, fix
+- No duplicates or near-duplicates (e.g. do not return both "promise" and "promises")
+- Output ONLY valid JSON in this exact format:
+  {"keywords": ["keyword1", "keyword2", "keyword3"]}
+
+## When the query is unclear
+If the query is very short or vague, still return the best keywords you can. Include meaningful tokens from the query plus related technical terms. Do not return an empty list.`;
+
+const STOP_WORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with',
+  'by', 'from', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
+  'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must',
+  'i', 'me', 'my', 'we', 'our', 'you', 'your', 'it', 'its', 'this', 'that', 'these', 'those',
+  'how', 'what', 'why', 'when', 'where', 'which', 'who', 'can', 'get', 'use', 'using',
+  'question', 'help', 'issue', 'problem', 'error', 'please', 'fix', 'need', 'want',
+]);
+
 // --- Helpers ---
 
 function sanitizeInput(text, maxLength = 300) {
@@ -85,6 +130,66 @@ function sanitizeTags(tags) {
     .filter((t) => typeof t === 'string')
     .map((t) => t.toLowerCase().trim().replace(/\s+/g, '-'))
     .slice(0, 5);
+}
+
+function normalizeKeyword(raw) {
+  return raw
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function sanitizeKeywords(keywords) {
+  const seen = new Set();
+  const result = [];
+
+  for (const item of keywords) {
+    if (typeof item !== 'string') continue;
+    const kw = normalizeKeyword(item);
+    if (kw.length < 2 || STOP_WORDS.has(kw)) continue;
+    if (seen.has(kw)) continue;
+    seen.add(kw);
+    result.push(kw);
+    if (result.length >= 10) break;
+  }
+
+  return result;
+}
+
+function fallbackKeywordsFromQuery(query) {
+  const tokens = query
+    .toLowerCase()
+    .split(/[\s,;!?./]+/)
+    .map(normalizeKeyword)
+    .filter((t) => t.length >= 2 && !STOP_WORDS.has(t));
+
+  return [...new Set(tokens)].slice(0, 10);
+}
+
+function parseKeywordsFromContent(content) {
+  if (!content?.trim()) return [];
+
+  const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const raw = (fenced?.[1] ?? content).trim();
+
+  try {
+    const parsed = JSON.parse(raw);
+    return sanitizeKeywords(parsed.keywords ?? []);
+  } catch {
+    const objectMatch = raw.match(/\{[\s\S]*\}/);
+    if (objectMatch) {
+      try {
+        const parsed = JSON.parse(objectMatch[0]);
+        return sanitizeKeywords(parsed.keywords ?? []);
+      } catch {
+        const quoted = [...objectMatch[0].matchAll(/"([a-z][a-z0-9-]*)"/gi)].map((m) => m[1]);
+        if (quoted.length > 0) return sanitizeKeywords(quoted);
+      }
+    }
+    return [];
+  }
 }
 
 function isGroq429(err) {
@@ -127,6 +232,51 @@ app.post('/tags', async (req, res) => {
   }
 });
 
+app.post('/smart-search', async (req, res) => {
+  if (isRateLimited()) return rateLimitedResponse(res);
+
+  const { query } = req.body;
+  if (!query || typeof query !== 'string' || query.trim().length < 2) {
+    return res.status(400).json({ error: 'query is required (min 2 characters)' });
+  }
+
+  const cleanQuery = sanitizeInput(query, 200);
+
+  try {
+    const completion = await llm.chat.completions.create({
+      model: MODEL,
+      messages: [
+        sysMsg(SMART_SEARCH_SYSTEM_PROMPT),
+        { role: 'user', content: `Search query: "${cleanQuery}"` },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.2,
+      max_tokens: 200,
+    });
+
+    let keywords = parseKeywordsFromContent(completion.choices[0].message.content);
+
+    if (keywords.length === 0) {
+      keywords = fallbackKeywordsFromQuery(cleanQuery);
+    }
+
+    const fallback = fallbackKeywordsFromQuery(cleanQuery);
+    for (const kw of fallback) {
+      if (!keywords.includes(kw)) keywords.push(kw);
+      if (keywords.length >= 10) break;
+    }
+
+    return res.json({ keywords: keywords.slice(0, 10) });
+  } catch (err) {
+    if (isGroq429(err)) {
+      const retryAfter = parseInt(err?.headers?.['retry-after'] ?? '300', 10);
+      tripCircuitBreaker(retryAfter);
+      return rateLimitedResponse(res);
+    }
+    logger.error('/smart-search failed', { error: err.message });
+    return res.status(503).json({ keywords: [], error: 'Smart search unavailable' });
+  }
+});
 
 app.get('/health', (_req, res) => {
   if (isRateLimited()) {
