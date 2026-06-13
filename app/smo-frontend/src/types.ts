@@ -31,6 +31,7 @@ export interface Answer {
   created_at: string;
   author: { id: string; username: string } | null;
   comments: Comment[];
+  quality_badge: 'helpful' | 'needs-detail' | 'off-topic' | null;
 }
 
 export interface Question {
