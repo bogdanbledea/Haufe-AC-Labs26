@@ -70,7 +70,16 @@ Rules:
 - Do not use generic tags like "question", "help", "issue", "problem", "error"
 - Prefer specific tags over vague ones (e.g. "useEffect" over "react")
 - Output ONLY valid JSON. Format: {"tags": ["tag1", "tag2", "tag3"]}`;
+ 
+const EVALUATE_ANSWER_SYSTEM_PROMPT = `You are a quality evaluator for Stack my Overflow, a Q&A platform for software developers.
+Your only job is to evaluate the quality of a developer's answer.
 
+Rules:
+- Return exactly one of three values: "helpful", "needs-detail", or "off-topic"
+- "helpful": the answer is relevant, clear, and addresses the question
+- "needs-detail": the answer is on-topic but too vague, incomplete, or missing explanation
+- "off-topic": the answer does not address the question at all
+- Output ONLY valid JSON. Format: {"badge": "helpful"}`;
 // --- Helpers ---
 
 function sanitizeInput(text, maxLength = 300) {
@@ -124,6 +133,46 @@ app.post('/tags', async (req, res) => {
     }
     logger.error('/tags failed', { error: err.message });
     return res.status(503).json({ tags: [], error: 'Tag service unavailable' });
+  }
+});
+// AICI AM ADAUGAT EU (ANDRA) 
+app.post('/evaluate-answer', async (req, res) => {
+  if (isRateLimited()) return rateLimitedResponse(res); //am verificat rate limiting ul
+
+  const { body } = req.body;
+  if (!body || typeof body !== 'string' || body.trim().length === 0) {
+    return res.status(400).json({ error: 'body is required' });
+  }
+//am extras body
+  try {
+    const completion = await llm.chat.completions.create({ //chem ai ul cu prompt ul de mai sus
+      model: MODEL,
+      messages: [
+        sysMsg(EVALUATE_ANSWER_SYSTEM_PROMPT),
+        { role: 'user', content: `Answer: "${sanitizeInput(body, 500)}"` },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.1,
+      max_tokens: 20,
+    });
+
+    const parsed = JSON.parse(completion.choices[0].message.content);
+    const validBadges = ['helpful', 'needs-detail', 'off-topic'];
+    const badge = validBadges.includes(parsed.badge) ? parsed.badge : null;
+
+    if (!badge) {
+      return res.status(503).json({ error: 'invalid badge returned' });
+    }
+
+    return res.json({ badge });
+  } catch (err) {
+    if (isGroq429(err)) {
+      const retryAfter = parseInt(err?.headers?.['retry-after'] ?? '300', 10);
+      tripCircuitBreaker(retryAfter);
+      return rateLimitedResponse(res);
+    }
+    logger.error('/evaluate-answer failed', { error: err.message });
+    return res.status(503).json({ error: 'Evaluation service unavailable' });
   }
 });
 
