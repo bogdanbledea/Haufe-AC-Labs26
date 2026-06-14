@@ -5,6 +5,49 @@ import logger from '../logger.js';
 
 const router = express.Router();
 
+/**
+ * Funcție ajutătoare care apelează serviciul smo-ai pentru evaluarea răspunsului.
+ * Include un timeout de 3.5 secunde pentru a asigura un comportament "fire-and-forget".
+ */
+async function fetchAIBadge(answerBody) {
+  const aiUrl = process.env.AI_SERVICE_URL || 'http://localhost:3100';
+  const aiSecret = process.env.SMO_AI_SECRET;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 25000);
+
+  try {
+    const response = await fetch(`${aiUrl}/evaluate-answer`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-internal-secret': aiSecret,
+      },
+      body: JSON.stringify({ body: answerBody }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+    
+    // Validăm ca valoarea primită să respecte contractul API stabilit
+    if (data?.badge && ['helpful', 'needs-detail', 'off-topic'].includes(data.badge)) {
+      return data.badge;
+    }
+
+    return null;
+  } catch (error) {
+    // Dacă serviciul AI pică (503) sau dă timeout, eșuează silențios și returnează null
+    logger.error('AI Badge evaluation skipped or failed', { error: error.message });
+    return null;
+  }
+}
+
 // POST /questions/:questionId/answers
 router.post('/questions/:questionId/answers', requireAuth, async (req, res) => {
   const { questionId } = req.params;
@@ -22,6 +65,7 @@ router.post('/questions/:questionId/answers', requireAuth, async (req, res) => {
 
   if (!question) return res.status(404).json({ error: 'Question not found' });
 
+  // 1. Salvăm mai întâi răspunsul în baza de date
   const { data: answer, error } = await supabase
     .from('answers')
     .insert({ question_id: questionId, author_id: req.user.id, body: body.trim() })
@@ -33,8 +77,37 @@ router.post('/questions/:questionId/answers', requireAuth, async (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 
-  logger.info('Answer posted', { answerId: answer.id, questionId, userId: req.user.id });
-  return res.status(201).json({ answer: { ...answer, comments: [] } });
+  // 2. Evaluăm textul primit folosind AI-ul
+  const badge = await fetchAIBadge(body.trim());
+
+  // Structura inițială a răspunsului trimis către frontend
+  let finalAnswer = { ...answer, quality_badge: badge };
+
+  // 3. Dacă AI-ul a returnat un badge valid, actualizăm înregistrarea în baza de date
+  if (badge) {
+    const { data: updatedAnswer, error: updateError } = await supabase
+      .from('answers')
+      .update({ quality_badge: badge })
+      .eq('id', answer.id)
+      .select('*, author:profiles!author_id(id, username)')
+      .single();
+
+    if (!updateError && updatedAnswer) {
+      finalAnswer = { ...updatedAnswer, quality_badge: badge };
+    } else {
+      logger.error('Failed to update answer with AI badge in database', { error: updateError?.message });
+    }
+  }
+
+  logger.info('Answer posted with AI quality badge evaluation', { 
+    answerId: answer.id, 
+    questionId, 
+    userId: req.user.id,
+    badge: badge || 'none/failed'
+  });
+
+  // 4. Returnăm răspunsul 201 cu obiectul actualizat și masivul comments gol
+  return res.status(201).json({ answer: { ...finalAnswer, comments: [] } });
 });
 
 // PATCH /answers/:id/accept
