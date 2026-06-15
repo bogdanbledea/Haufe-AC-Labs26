@@ -44,4 +44,22 @@ async function health() {
   }
 }
 
-export { suggestTags, health };
+/**
+ * Request an AI summary for a question thread from the AI engine
+ * @param {string} title 
+ * @param {string} description 
+ * @param {string|null} topAnswer 
+ * @param {Array<string>|null} topComments 
+ * @returns {Promise<{ summary: string } | { isDown: boolean } | null>}
+ */
+async function getSummary(title, description, topAnswer, topComments) {
+  try {
+    return await post('/summarize', { title, description, topAnswer, topComments });
+  } catch (err) {
+    logger.error('smoAi.getSummary failed', { error: err.message });
+    // Returns null to fall back safely and allow graceful degradation
+    return null; 
+  }
+}
+
+export { suggestTags, health, getSummary };
