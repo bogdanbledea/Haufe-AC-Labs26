@@ -54,7 +54,16 @@ async function health() {
  */
 async function getSummary(title, description, topAnswer, topComments) {
   try {
-    return await post('/summarize', { title, description, topAnswer, topComments });
+    // Convert topAnswer and topComments to answers array format expected by smo-ai
+    const answers = [];
+    if (topAnswer) {
+      answers.push(topAnswer);
+    }
+    if (topComments && Array.isArray(topComments)) {
+      answers.push(...topComments.slice(0, 2)); // Add up to 2 comments
+    }
+    
+    return await post('/summarize', { title, description, answers: answers.length > 0 ? answers : undefined });
   } catch (err) {
     logger.error('smoAi.getSummary failed', { error: err.message });
     // Returns null to fall back safely and allow graceful degradation
