@@ -7,9 +7,9 @@ const router = express.Router();
 
 /**
  * Funcție ajutătoare care apelează serviciul smo-ai pentru evaluarea răspunsului.
- * Include un timeout de 3.5 secunde pentru a asigura un comportament "fire-and-forget".
+ * Include un timeout pentru a asigura un comportament "fire-and-forget".
  */
-async function fetchAIBadge(answerBody) {
+async function fetchAIBadge(answerBody, questionTitle) {
   const aiUrl = process.env.AI_SERVICE_URL || 'http://localhost:3100';
   const aiSecret = process.env.SMO_AI_SECRET;
 
@@ -23,7 +23,7 @@ async function fetchAIBadge(answerBody) {
         'Content-Type': 'application/json',
         'x-internal-secret': aiSecret,
       },
-      body: JSON.stringify({ body: answerBody }),
+      body: JSON.stringify({ body: answerBody, question: questionTitle }),
       signal: controller.signal,
     });
 
@@ -34,7 +34,7 @@ async function fetchAIBadge(answerBody) {
     }
 
     const data = await response.json();
-    
+
     // Validăm ca valoarea primită să respecte contractul API stabilit
     if (data?.badge && ['helpful', 'needs-detail', 'off-topic'].includes(data.badge)) {
       return data.badge;
@@ -59,7 +59,7 @@ router.post('/questions/:questionId/answers', requireAuth, async (req, res) => {
 
   const { data: question } = await supabase
     .from('questions')
-    .select('id')
+    .select('id, title')
     .eq('id', questionId)
     .single();
 
@@ -77,8 +77,8 @@ router.post('/questions/:questionId/answers', requireAuth, async (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 
-  // 2. Evaluăm textul primit folosind AI-ul
-  const badge = await fetchAIBadge(body.trim());
+  // 2. Evaluăm textul primit folosind AI-ul (trimitem și întrebarea pentru context)
+  const badge = await fetchAIBadge(body.trim(), question.title);
 
   // Structura inițială a răspunsului trimis către frontend
   let finalAnswer = { ...answer, quality_badge: badge };
@@ -99,9 +99,9 @@ router.post('/questions/:questionId/answers', requireAuth, async (req, res) => {
     }
   }
 
-  logger.info('Answer posted with AI quality badge evaluation', { 
-    answerId: answer.id, 
-    questionId, 
+  logger.info('Answer posted with AI quality badge evaluation', {
+    answerId: answer.id,
+    questionId,
     userId: req.user.id,
     badge: badge || 'none/failed'
   });
