@@ -23,7 +23,7 @@ const Home = () => {
     setLoading(true);
     setError(null);
     getQuestions(activeTag ?? undefined)
-      .then(({ questions: q }) => setQuestions(q))
+      .then(({ questions: q }) => setQuestions(q ?? []))
       .catch((err: unknown) =>
         setError(err instanceof Error ? err.message : 'Failed to load questions'),
       )

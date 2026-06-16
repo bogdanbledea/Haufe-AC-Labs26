@@ -138,3 +138,57 @@ CREATE POLICY "comments_insert" ON comments FOR INSERT WITH CHECK (auth.uid() = 
 CREATE POLICY "comments_delete" ON comments FOR DELETE USING (auth.uid() = author_id);
 
 ALTER TABLE answers ADD COLUMN quality_badge text CHECK (quality_badge IN ('helpful', 'needs-detail', 'off-topic'));
+
+-- 1. Add the summary column directly to your existing questions table
+ALTER TABLE questions
+ADD COLUMN IF NOT EXISTS summary text DEFAULT NULL;
+
+-- 2. Create the trigger function that detects edits and clears the summary
+CREATE OR REPLACE FUNCTION clear_question_summary_on_edit()
+RETURNS TRIGGER AS $$
+BEGIN
+-- Only clear the summary if the title or description actually changed
+IF (OLD.title IS DISTINCT FROM NEW.title) OR (OLD.description IS DISTINCT FROM NEW.description) THEN
+NEW.summary := NULL;
+END IF;
+RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 3. Bind the trigger to run BEFORE any update happens on the questions table
+CREATE TRIGGER tr_clear_question_summary
+BEFORE UPDATE ON questions
+FOR EACH ROW
+EXECUTE FUNCTION clear_question_summary_on_edit();
+
+-- 1. Create a trigger function that clears the summary when a comment changes
+CREATE OR REPLACE FUNCTION clear_question_summary_on_comment_edit()
+RETURNS TRIGGER AS $$
+BEGIN
+-- We only care if the comment body actually changed
+IF (OLD.body IS DISTINCT FROM NEW.body) THEN
+
+-- CASE 1: The comment was directly on a question
+IF NEW.target_type = 'question' THEN
+UPDATE questions
+SET summary = NULL
+WHERE id = NEW.target_id;
+
+-- CASE 2: The comment was on an answer
+-- (Since the summary includes the top answer, changing an answer's comment affects the context!)
+ELSIF NEW.target_type = 'answer' THEN
+UPDATE questions
+SET summary = NULL
+WHERE id = (SELECT question_id FROM answers WHERE id = NEW.target_id);
+END IF;
+
+END IF;
+RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 2. Bind the trigger to the comments table
+CREATE TRIGGER tr_clear_question_summary_on_comment
+AFTER UPDATE ON comments
+FOR EACH ROW
+EXECUTE FUNCTION clear_question_summary_on_comment_edit();
