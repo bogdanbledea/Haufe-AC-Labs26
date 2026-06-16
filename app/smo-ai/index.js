@@ -83,6 +83,33 @@ Rules:
 - "off-topic": the answer does not address THIS question — it's about something else entirely
 - Output ONLY valid JSON. Format: {"badge": "helpful"}`;
 
+const SUMMARY_SYSTEM_PROMPT = `You are an advanced technical summarization engine for "Stack my Overflow", a developer Q&A platform. Your task is to analyze a programming question and its top answer, extracting a highly accurate, noise-free summary.
+
+### INPUT STRUCTURE
+You will be provided with:
+1. Question Title & Body (containing code snippets, errors, and context)
+2. Top Answer (Optional)
+
+### CRITICAL PROCESSING RULES
+- NO FILLER TEXT: Do not use introductory phrases like "The user is asking...", "This thread is about...", or "The author explains...". Start immediately with the technical problem.
+- TECHNICAL PRECISION: Maintain exact casing and naming for libraries, frameworks, API methods, and error codes (e.g., use "Node.js", not "node", "EADDRINUSE", not "port error").
+- CONDITIONAL SOLUTION LOGIC: 
+  - If a Top Answer is provided: Extract the core mechanism of the fix (e.g., "resolved by implementing a custom middleware to handle CORS").
+  - If NO Top Answer is provided: Explicitly set the solution fields to null and focus entirely on diagnosing the root cause of the problem.
+- STRICT TRUTH: Do not infer or hallucinate solutions if they are not explicitly present in the text.
+
+### OUTPUT SPECIFICATION
+- You must output EXACTLY a single, valid JSON object. 
+- Do NOT wrap the JSON in markdown code blocks (e.g., do not use \`\`\`json ... \`\`\`).
+- Ensure all inner strings properly escape double quotes to prevent JSON parsing failures.
+
+### REQUIRED JSON SCHEMA
+{
+  "core_problem": "A concise, one-sentence distillation of the technical roadblock.",
+  "technologies_involved": ["Array", "of", "tags", "languages", "or", "libraries", "detected"],
+  "solution_approach": "A brief summary of the resolution mechanism, or null if no answer was provided.",
+  "summary": "A cohesive, developer-friendly 1-2 sentence summary blending the problem and the solution seamlessly."
+}`;
 // --- Helpers ---
 
 function sanitizeInput(text, maxLength = 300) {
@@ -179,7 +206,7 @@ app.post('/evaluate-answer', async (req, res) => {
     }
 
     return res.json({ badge: rawBadge });
-  } catch (err) {
+    } catch (err) {
     if (isGroq429(err)) {
       const retryAfter = parseInt(err?.headers?.['retry-after'] ?? '300', 10);
       tripCircuitBreaker(retryAfter);
@@ -189,6 +216,62 @@ app.post('/evaluate-answer', async (req, res) => {
     logger.error('/evaluate-answer failed', { error: err.message });
     // Întoarcem 503 agreat în cerință fără să lăsăm procesul Node să moară
     return res.status(503).json({ error: 'Evaluation service unavailable' });
+  }
+});
+app.post('/summarize', async (req, res) => {
+  if (isRateLimited()) return rateLimitedResponse(res);
+
+  const { title, description, answers } = req.body;
+  if (!title || typeof title !== 'string' || title.trim().length === 0) {
+    return res.status(400).json({ error: 'title is required' });
+  }
+  if (!description || typeof description !== 'string' || description.trim().length === 0) {
+    return res.status(400).json({ error: 'description is required' });
+  }
+
+  // Validate answers if provided
+  if (answers && (!Array.isArray(answers) || answers.length > 3)) {
+    return res.status(400).json({ error: 'answers must be an array with max 3 items' });
+  }
+
+  try {
+    let userContent = `Question title: "${sanitizeInput(title)}"\n\nDescription: "${sanitizeInput(description)}"`;
+    
+    if (answers && Array.isArray(answers) && answers.length > 0) {
+      const validAnswers = answers
+        .filter((a) => typeof a === 'string' && a.trim().length > 0)
+        .slice(0, 3);
+      
+      if (validAnswers.length > 0) {
+        userContent += '\n\nAnswers:\n';
+        validAnswers.forEach((answer, idx) => {
+          userContent += `${idx + 1}. "${sanitizeInput(answer)}"\n`;
+        });
+      }
+    }
+
+    const completion = await llm.chat.completions.create({
+      model: MODEL,
+      messages: [
+        sysMsg(SUMMARY_SYSTEM_PROMPT),
+        { role: 'user', content: userContent },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.3,
+      max_tokens: 150,
+    });
+
+    const parsed = JSON.parse(completion.choices[0].message.content);
+    const summary = parsed.summary ?? '';
+    return res.json({ summary });
+  } catch (err) {
+    if (isGroq429(err)) {
+      const retryAfter = parseInt(err?.headers?.['retry-after'] ?? '300', 10);
+      tripCircuitBreaker(retryAfter);
+      return rateLimitedResponse(res);
+    }
+    logger.error('/summarize failed', { error: err.message });
+    return res.status(503).json({ error: 'Summary service unavailable' });
   }
 });
 

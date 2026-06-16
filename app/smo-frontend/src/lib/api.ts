@@ -129,4 +129,7 @@ export const createComment = (
 export const suggestTags = (title: string) =>
   post<{ tags: string[] }>('/ai/tags', { title });
 
+export const summarizeQuestion = (questionId: string) =>
+  post<{ summary: string }>('/ai/summarize', { questionId });
+
 export const aiHealth = () => get<AiHealthResponse>('/ai/health');

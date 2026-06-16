@@ -8,6 +8,7 @@ import VoteButton from '../components/VoteButton';
 import AnswerCard from '../components/AnswerCard';
 import CommentList from '../components/CommentList';
 import TagPill from '../components/TagPill';
+import QuestionSummary from '../components/QuestionSummary';
 import { getQuestion, createAnswer, acceptAnswer, vote, deleteQuestion } from '../lib/api';
 import { formatDate } from '../lib/utils';
 import type { Question } from '../types';
@@ -172,6 +173,8 @@ const QuestionDetail = () => {
               <div className="prose text-zinc-800 dark:text-zinc-200 text-sm mb-4">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{question.description}</ReactMarkdown>
               </div>
+
+              <QuestionSummary questionId={question.id} initialSummary={question.summary}/>
 
               <div className="flex flex-wrap gap-2 mb-2">
                 {question.question_tags.map(({ tag }) => (
