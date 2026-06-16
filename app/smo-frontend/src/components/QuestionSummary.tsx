@@ -3,10 +3,11 @@ import { summarizeQuestion } from '../lib/api';
 
 interface QuestionSummaryProps {
   questionId: string;
+  initialSummary?: string | null;
 }
 
-const QuestionSummary = ({ questionId }: QuestionSummaryProps) => {
-  const [summary, setSummary] = useState<string | null>(null);
+const QuestionSummary = ({ questionId, initialSummary }: QuestionSummaryProps) => {
+  const [summary, setSummary] = useState<string | null>(initialSummary || null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [serviceUnavailable, setServiceUnavailable] = useState(false);

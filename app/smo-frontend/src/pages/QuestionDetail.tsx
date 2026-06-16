@@ -174,7 +174,7 @@ const QuestionDetail = () => {
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{question.description}</ReactMarkdown>
               </div>
 
-              <QuestionSummary questionId={question.id} />
+              <QuestionSummary questionId={question.id} initialSummary={question.summary}/>
 
               <div className="flex flex-wrap gap-2 mb-2">
                 {question.question_tags.map(({ tag }) => (

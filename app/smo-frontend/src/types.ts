@@ -42,6 +42,7 @@ export interface Question {
   is_solved: boolean;
   vote_count: number;
   created_at: string;
+  summary?: string | null;
   author: { id: string; username: string } | null;
   question_tags: QuestionTag[];
   answers: Answer[];
