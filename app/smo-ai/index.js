@@ -72,13 +72,15 @@ Rules:
 - Output ONLY valid JSON. Format: {"tags": ["tag1", "tag2", "tag3"]}`;
  
 const EVALUATE_ANSWER_SYSTEM_PROMPT = `You are a quality evaluator for Stack my Overflow, a Q&A platform for software developers.
-Your only job is to evaluate the quality of a developer's answer.
+Your job is to evaluate how well a developer's answer addresses the given question.
+
+You will receive a Question and an Answer.
 
 Rules:
 - Return exactly one of three values: "helpful", "needs-detail", or "off-topic"
-- "helpful": the answer is relevant, clear, and addresses the question
+- "helpful": the answer is relevant to the question, clear, and addresses it well
 - "needs-detail": the answer is on-topic but too vague, incomplete, or missing explanation
-- "off-topic": the answer does not address the question at all
+- "off-topic": the answer does not address THIS question — it's about something else entirely
 - Output ONLY valid JSON. Format: {"badge": "helpful"}`;
 // --- Helpers ---
 
@@ -137,19 +139,25 @@ app.post('/tags', async (req, res) => {
 });
 // AICI AM ADAUGAT EU (ANDRA) 
 app.post('/evaluate-answer', async (req, res) => {
-  if (isRateLimited()) return rateLimitedResponse(res); //am verificat rate limiting ul
+  if (isRateLimited()) return rateLimitedResponse(res);
 
-  const { body } = req.body;
+  const { body, question } = req.body;   // ⬅️ extragem și question
   if (!body || typeof body !== 'string' || body.trim().length === 0) {
     return res.status(400).json({ error: 'body is required' });
   }
-//am extras body
+  if (!question || typeof question !== 'string' || question.trim().length === 0) {
+    return res.status(400).json({ error: 'question is required' });   // ⬅️ validăm question
+  }
+
   try {
-    const completion = await llm.chat.completions.create({ //chem ai ul cu prompt ul de mai sus
+    const completion = await llm.chat.completions.create({
       model: MODEL,
       messages: [
         sysMsg(EVALUATE_ANSWER_SYSTEM_PROMPT),
-        { role: 'user', content: `Answer: "${sanitizeInput(body, 500)}"` },
+        {
+          role: 'user',
+          content: `Question: "${sanitizeInput(question, 300)}"\nAnswer: "${sanitizeInput(body, 500)}"`,   // ⬅️ trimitem ambele
+        },
       ],
       response_format: { type: 'json_object' },
       temperature: 0.1,
@@ -175,7 +183,6 @@ app.post('/evaluate-answer', async (req, res) => {
     return res.status(503).json({ error: 'Evaluation service unavailable' });
   }
 });
-
 
 app.get('/health', (_req, res) => {
   if (isRateLimited()) {
