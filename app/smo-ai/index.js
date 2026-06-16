@@ -110,6 +110,18 @@ You will be provided with:
   "solution_approach": "A brief summary of the resolution mechanism, or null if no answer was provided.",
   "summary": "A cohesive, developer-friendly 1-2 sentence summary blending the problem and the solution seamlessly."
 }`;
+
+const SMART_SEARCH_SYSTEM_PROMPT = `You expand a developer's search query into related search keywords for Stack my Overflow, a Q&A platform for software developers.
+The backend uses your keywords to find questions whose titles or descriptions mention any of them, so good coverage matters.
+
+Rules:
+- Return between 5 and 8 keywords
+- Cover related concepts, synonyms, technologies, and APIs — NOT restatements of the query
+- Example: "how do I async javascript" -> ["async", "await", "promises", "event loop", "callbacks", "settimeout", "fetch"]
+- Single words or short phrases (max 3 words), lowercase
+- No duplicates, no full sentences, no generic words like "how", "code", "help", "javascript" on its own if it's just echoing the query
+- Output ONLY valid JSON. Format: {"keywords": ["term1", "term2", "term3"]}`;
+
 // --- Helpers ---
 
 function sanitizeInput(text, maxLength = 300) {
@@ -124,6 +136,20 @@ function sanitizeTags(tags) {
     .filter((t) => typeof t === 'string')
     .map((t) => t.toLowerCase().trim().replace(/\s+/g, '-'))
     .slice(0, 5);
+}
+
+function sanitizeKeywords(keywords) {
+  const seen = new Set();
+  const out = [];
+  for (const k of keywords) {
+    if (typeof k !== 'string') continue;
+    const clean = k.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 40);
+    if (!clean || seen.has(clean)) continue;
+    seen.add(clean);
+    out.push(clean);
+    if (out.length >= 8) break;
+  }
+  return out;
 }
 
 function isGroq429(err) {
@@ -274,6 +300,41 @@ app.post('/summarize', async (req, res) => {
     return res.status(503).json({ error: 'Summary service unavailable' });
   }
 });
+
+app.post('/smart-search', async (req, res) => {
+  if (isRateLimited()) return rateLimitedResponse(res);
+
+  const { query } = req.body;
+  if (!query || typeof query !== 'string' || query.trim().length === 0) {
+    return res.status(400).json({ error: 'query is required' });
+  }
+
+  try {
+    const completion = await llm.chat.completions.create({
+      model: MODEL,
+      messages: [
+        sysMsg(SMART_SEARCH_SYSTEM_PROMPT),
+        { role: 'user', content: `Search query: "${sanitizeInput(query)}"` },
+      ],
+      response_format: { type: 'json_object' },
+      temperature: 0.4,
+      max_tokens: 120,
+    });
+
+    const parsed = JSON.parse(completion.choices[0].message.content);
+    const keywords = sanitizeKeywords(parsed.keywords ?? []);
+    return res.json({ keywords });
+  } catch (err) {
+    if (isGroq429(err)) {
+      const retryAfter = parseInt(err?.headers?.['retry-after'] ?? '300', 10);
+      tripCircuitBreaker(retryAfter);
+      return rateLimitedResponse(res);
+    }
+    logger.error('/smart-search failed', { error: err.message });
+    return res.status(503).json({ keywords: [], error: 'Smart search unavailable' });
+  }
+});
+
 
 app.get('/health', (_req, res) => {
   if (isRateLimited()) {

@@ -35,6 +35,15 @@ async function suggestTags(title) {
   }
 }
 
+async function smartSearch(query) {
+  try {
+    return await post('/smart-search', { query });
+  } catch (err) {
+    logger.error('smoAi.smartSearch failed', { error: err.message });
+    return null;
+  }
+}
+
 async function health() {
   try {
     const res = await fetch(`${BASE}/health`, { signal: AbortSignal.timeout(3000) });
@@ -46,10 +55,10 @@ async function health() {
 
 /**
  * Request an AI summary for a question thread from the AI engine
- * @param {string} title 
- * @param {string} description 
- * @param {string|null} topAnswer 
- * @param {Array<string>|null} topComments 
+ * @param {string} title
+ * @param {string} description
+ * @param {string|null} topAnswer
+ * @param {Array<string>|null} topComments
  * @returns {Promise<{ summary: string } | { isDown: boolean } | null>}
  */
 async function getSummary(title, description, topAnswer, topComments) {
@@ -62,13 +71,13 @@ async function getSummary(title, description, topAnswer, topComments) {
     if (topComments && Array.isArray(topComments)) {
       answers.push(...topComments.slice(0, 2)); // Add up to 2 comments
     }
-    
+
     return await post('/summarize', { title, description, answers: answers.length > 0 ? answers : undefined });
   } catch (err) {
     logger.error('smoAi.getSummary failed', { error: err.message });
     // Returns null to fall back safely and allow graceful degradation
-    return null; 
+    return null;
   }
 }
 
-export { suggestTags, health, getSummary };
+export { suggestTags, smartSearch, health, getSummary };
