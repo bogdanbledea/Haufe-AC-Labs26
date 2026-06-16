@@ -13,9 +13,24 @@ interface AnswerCardProps {
   onVote?: (id: string, value: 1 | -1) => void;
 }
 
+const BADGE_CONFIG = {
+  'helpful': {
+    label: 'Helpful',
+    className: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
+  },
+  'needs-detail': {
+    label: 'Needs more detail',
+    className: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
+  },
+  'off-topic': {
+    label: 'Off-topic',
+    className: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
+  },
+} as const;
+
 const AnswerCard = ({ answer, isQuestionOwner, onAccept, onVote }: AnswerCardProps) => {
   const { user } = useAuth();
-  const { id, body, is_accepted, vote_count, created_at, author, comments } = answer;
+  const { id, body, is_accepted, vote_count, created_at, author, comments, quality_badge } = answer;
 
   return (
     <div
@@ -51,9 +66,14 @@ const AnswerCard = ({ answer, isQuestionOwner, onAccept, onVote }: AnswerCardPro
           </div>
 
           <div className="flex items-center justify-between mt-3">
-            <p className="text-xs text-zinc-400 dark:text-zinc-500">
+            <p className="text-xs text-zinc-400 dark:text-zinc-500 flex items-center gap-2 flex-wrap">
               answered by{' '}
               <span className="text-zinc-600 dark:text-zinc-400">{author?.username}</span>
+              {quality_badge && (
+                <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${BADGE_CONFIG[quality_badge].className}`}>
+                  {BADGE_CONFIG[quality_badge].label}
+                </span>
+              )}
               {' '}· {formatDate(created_at)}
             </p>
             {isQuestionOwner && !is_accepted && (

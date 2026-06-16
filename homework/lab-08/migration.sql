@@ -136,3 +136,5 @@ ALTER TABLE comments ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "comments_select" ON comments FOR SELECT USING (true);
 CREATE POLICY "comments_insert" ON comments FOR INSERT WITH CHECK (auth.uid() = author_id);
 CREATE POLICY "comments_delete" ON comments FOR DELETE USING (auth.uid() = author_id);
+
+ALTER TABLE answers ADD COLUMN quality_badge text CHECK (quality_badge IN ('helpful', 'needs-detail', 'off-topic'));
